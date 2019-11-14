@@ -1,0 +1,316 @@
+{ 
+   "AWSTemplateFormatVersion":"2010-09-09",
+   "Parameters":{ 
+      "keyTag":{ 
+         "Type":"String"
+      }
+   },
+   "Resources":{ 
+      "CodeDeployServiceRole":{ 
+         "Type":"AWS::IAM::Role",
+         "Properties":{ 
+            "ManagedPolicyArns":[ 
+               "arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole"
+            ],
+            "AssumeRolePolicyDocument":{ 
+               "Version":"2012-10-17",
+               "Statement":[ 
+                  { 
+                     "Effect":"Allow",
+                     "Principal":{ 
+                        "Service":[ 
+                           "codedeploy.amazonaws.com"
+                        ]
+                     },
+                     "Action":[ 
+                        "sts:AssumeRole"
+                     ]
+                  }
+               ]
+            },
+            "Path":"/"
+         }
+      },
+      "RolePolicy1":{ 
+         "Type":"AWS::IAM::Policy",
+         "Properties":{ 
+            "PolicyName":"Get-from-S3",
+            "PolicyDocument":{ 
+               "Version":"2012-10-17",
+               "Statement":[ 
+                  { 
+                     "Action":[ 
+                        "s3:GetObject",
+                        "s3:GetObjectVersion",
+                        "s3:ListBucket"
+                     ],
+                     "Effect":"Allow",
+                     "Resource":"*"
+                  }
+               ]
+            },
+            "Roles":[ 
+               { 
+                  "Ref":"CodeDeployServiceRole"
+               }
+            ]
+         }
+      },
+      "RolePolicy2":{ 
+         "Type":"AWS::IAM::Policy",
+         "Properties":{ 
+            "PolicyName":"deploy-to-ec2",
+            "PolicyDocument":{ 
+               "Version":"2012-10-17",
+               "Statement":[ 
+                  { 
+                     "Effect":"Allow",
+                     "Action":[ 
+                        "ec2:DescribeInstances",
+                        "ec2:DescribeInstanceStatus",
+                        "ec2:TerminateInstances",
+                        "tag:GetResources"
+                     ],
+                     "Resource":"*"
+                  }
+               ]
+            },
+            "Roles":[ 
+               { 
+                  "Ref":"CodeDeployServiceRole"
+               }
+            ]
+         }
+      },
+      "AmazonEC2RoleforAWSCodeDeploy":{ 
+         "Type":"AWS::IAM::Role",
+         "Properties":{ 
+            "AssumeRolePolicyDocument":{ 
+               "Version":"2012-10-17",
+               "Statement":[ 
+                  { 
+                     "Effect":"Allow",
+                     "Principal":{ 
+                        "Service":[ 
+                           "ec2.amazonaws.com"
+                        ]
+                     },
+                     "Action":[ 
+                        "sts:AssumeRole"
+                     ]
+                  }
+               ]
+            },
+            "Path":"/"
+         }
+      },
+      "RolePolicies":{ 
+         "Type":"AWS::IAM::Policy",
+         "Properties":{ 
+            "PolicyName":"CodeDeploy-EC2-S3",
+            "PolicyDocument":{ 
+               "Version":"2012-10-17",
+               "Statement":[ 
+                  { 
+                     "Action":[ 
+                        "s3:GetObject",
+                        "s3:GetObjectVersion",
+                        "s3:ListBucket"
+                     ],
+                     "Effect":"Allow",
+                     "Resource":"*"
+                  }
+               ]
+            },
+            "Roles":[ 
+               { 
+                  "Ref":"AmazonEC2RoleforAWSCodeDeploy"
+               }
+            ]
+         }
+      },
+      "CodeDeployEC2ServiceRoleInstanceProfile":{ 
+         "Type":"AWS::IAM::InstanceProfile",
+         "Properties":{ 
+            "Path":"/",
+            "Roles":[ 
+               { 
+                  "Ref":"AmazonEC2RoleforAWSCodeDeploy"
+               }
+            ]
+         }
+      },
+      "dbec2Instance":{ 
+         "Type":"AWS::EC2::Instance",
+         "Properties":{ 
+            "ImageId":"ami-04b9e92b5572fa0d1",
+            "KeyName":{ 
+               "Ref":"keyTag"
+            },
+            "InstanceType":"t2.micro",
+            "BlockDeviceMappings":[ 
+               { 
+                  "DeviceName":"/dev/sda1",
+                  "Ebs":{ 
+                     "VolumeType":"gp2",
+                     "VolumeSize":"8"
+                  }
+               }
+            ],
+            "SecurityGroupIds":[ 
+               { 
+                  "Fn::ImportValue":"IPA-DbServerSG"
+               }
+            ],
+            "SubnetId":{ 
+               "Fn::ImportValue":"IPA-PrivateSubnet"
+            },
+            "UserData":{ 
+               "Fn::Base64":{ 
+                  "Fn::Join":[ 
+                     "",
+                     [ 
+                        "#!/bin/bash -xe \n",
+                        "sudo apt-get update \n",
+                        "sudo apt install mysql-server -y \n",
+                        "sudo /etc/init.d/mysql start \n",
+                        "sudo sed -i 's/127.0.0.1/0.0.0.0/gI' /etc/mysql/mysql.conf.d/mysqld.cnf \n",
+                        "sudo mysql -e 'CREATE DATABASE Employees;' \n",
+                        "sudo mysql -e \"CREATE USER 'rug'@'%' IDENTIFIED BY 'test';\" \n",
+                        "sudo mysql -e \"GRANT ALL PRIVILEGES ON *.* TO 'rug'@'%';\" \n",
+                        "sudo mysql -e 'FLUSH PRIVILEGES;' \n",
+                        "sudo /etc/init.d/mysql restart \n"
+                     ]
+                  ]
+               }
+            }
+         }
+      },
+      "webec2Instance":{ 
+         "Type":"AWS::EC2::Instance",
+         "DependsOn":[ 
+            "dbec2Instance",
+            "CodeDeployEC2ServiceRoleInstanceProfile"
+         ],
+         "Properties":{ 
+            "ImageId":"ami-04b9e92b5572fa0d1",
+            "KeyName":{ 
+               "Ref":"keyTag"
+            },
+            "InstanceType":"t2.micro",
+            "Tags":[ 
+               { 
+                  "Key":"Name",
+                  "Value":"EC2Instance"
+               }
+            ],
+            "BlockDeviceMappings":[ 
+               { 
+                  "DeviceName":"/dev/sda1",
+                  "Ebs":{ 
+                     "VolumeType":"gp2",
+                     "VolumeSize":"8"
+                  }
+               }
+            ],
+            "SecurityGroupIds":[ 
+               { 
+                  "Fn::ImportValue":"IPA-WebServerSG"
+               }
+            ],
+            "SubnetId":{ 
+               "Fn::ImportValue":"IPA-PublicSubnet"
+            },
+            "IamInstanceProfile":{ 
+               "Ref":"CodeDeployEC2ServiceRoleInstanceProfile"
+            },
+            "UserData":{ 
+               "Fn::Base64":{ 
+                  "Fn::Join":[ 
+                     "",
+                     [ 
+                        "#!/bin/bash -xe \n",
+                        "sudo apt-get update \n",
+                        "sudo apt-get install ruby -y \n",
+                        "cd /home/ubuntu \n",
+                        "wget https://aws-codedeploy-us-east-1.s3.us-east-1.amazonaws.com/latest/install \n",
+                        "sudo chmod +x ./install \n", 
+                        "sudo ./install auto \n",
+                        "sudo service codedeploy-agent start \n",
+                        "sudo apt install python-pip -y \n",
+                        "sudo pip install Flask \n",
+                        "sudo pip install flask \n",
+                        "sudo pip install sqlalchemy \n",
+                        "sudo pip install flask-sqlalchemy \n",
+                        "sudo pip install pymysql \n",
+                        "sudo pip install python-dotenv \n",
+                        "sudo chmod 777 /etc \n",
+                        "sudo chmod 777 /etc/environment \n",
+                        "MASTERIP=",
+                        { 
+                           "Fn::GetAtt":[ 
+                              "dbec2Instance",  
+                              "PrivateIp"
+                           ]
+                        },
+                        "\n",
+                        "export SQLALCHEMY_DATABASE_URI=mysql+pymysql://rug:test@${MASTERIP}:3306/Employees\n",
+                        "sudo -s echo 'export SQLALCHEMY_DATABASE_URI=mysql+pymysql://rug:test@'${MASTERIP}':3306/Employees' >> /etc/environment \n",
+                        "sudo python app/app.py & \n",
+                        "bash -i \n"
+
+                     ]
+                  ]
+               }
+            }
+         }
+      },
+      "CodeDeployApplication":{ 
+         "Type":"AWS::CodeDeploy::Application",
+         "Properties":{ 
+            "ApplicationName":"app"
+         }
+      },
+
+      "DeploymentGroup":{ 
+         "DependsOn":["webec2Instance","CodeDeployEC2ServiceRoleInstanceProfile"],
+         "Type":"AWS::CodeDeploy::DeploymentGroup",
+         "Properties":{ 
+            "ApplicationName":{ 
+               "Ref":"CodeDeployApplication"
+            },
+            "Deployment":{ 
+               "Description":"First time",
+               "IgnoreApplicationStopFailures":"true",
+               "Revision":{ 
+                  "RevisionType":"S3",
+                  "S3Location":{ 
+                     "Bucket":"ipa-s3",
+                     "BundleType":"zip",
+                     "Key":"codedeploy.zip"
+                  }
+               }
+            },
+            "DeploymentConfigName":"CodeDeployDefault.OneAtATime",
+            "DeploymentGroupName":"IpaWebappCodeDeploy",
+            "DeploymentStyle":{ 
+               "DeploymentType":"IN_PLACE",
+               "DeploymentOption":"WITHOUT_TRAFFIC_CONTROL"
+            },
+            "Ec2TagFilters":[ 
+               { 
+                  "Type":"KEY_AND_VALUE",
+                  "Key":"Name",
+                  "Value":"EC2Instance"
+               }
+            ],
+            "ServiceRoleArn":{ 
+               "Fn::GetAtt":[ 
+                  "CodeDeployServiceRole",
+                  "Arn"
+               ]
+            }
+         }
+      }
+   }
+}
