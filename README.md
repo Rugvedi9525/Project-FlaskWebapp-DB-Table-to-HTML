@@ -11,7 +11,7 @@ cd into the  Network stack folder and run the shell scipt.(No changes required f
 Example: 
 ./Networkstack-IPA-Create.sh /home/rugvedi25/Desktop/IPA/codedeploy/codedeploy.zip
 
-./Networkstack-IPA-Create.sh <Path to the codedeploy.zip>       
+./Networkstack-IPA-Create.sh *Path to codedeploy.zip* 
     
 
 Step 2: Create the Application stack
@@ -21,7 +21,7 @@ cd into the Application stack folder and the run the shell script and pass your 
 Example:
 ./Appstack-IPA-Create.sh aws_keys
 
-./Appstack-IPA-Create.sh <aws_keys>
+./Appstack-IPA-Create.sh *AWS keys*
 
 Step 3: 
 
